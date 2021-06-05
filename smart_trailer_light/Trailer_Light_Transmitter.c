@@ -131,7 +131,7 @@ void setup()
   
   //Setup inputs
   
-  pinMode(SLIDESWITCHPIN, INPUT);
+  //pinMode(SLIDESWITCHPIN, INPUT);
   pinMode(CLRSIDEIN, INPUT);
   pinMode(LEFTLIGHTIN, INPUT);
   pinMode(RIGHTLIGHTIN, INPUT);
@@ -156,108 +156,166 @@ void setup()
     
   // Initialize the RFM69HCW:
   //  radio.setCS(10);  //uncomment if using Pro Micro
-  firstLoop = true;
-  radio.initialize(FREQUENCY, RECIEVENODEID, NETWORKID); // Initialize as reciever node
+  radio.initialize(FREQUENCY, TRANSMITNODEID, NETWORKID); // Initialize as transmitter node
   Serial.print("Node ");
-  Serial.print(RECIEVENODEID,DEC);
+  Serial.print(TRANSMITNODEID,DEC);
   Serial.println(" ready"); 
 
+ 
   radio.setHighPower(); // Always use this for RFM69HCW
 
   // Turn on encryption if desired:
   
   if (ENCRYPT)
     radio.encrypt(ENCRYPTKEY);
+    
+  firstLoop = true;
 }
 
 void loop()
 {
   if(firstLoop){
-    radio.initialize(FREQUENCY, RECIEVENODEID, NETWORKID);
-    firstLoop = false;
-    Serial.print("NODE ID changed to ");
-    Serial.println(RECIEVENODEID,DEC);
-  } 
-  
-  recieve();
-
+  radio.initialize(FREQUENCY, TRANSMITNODEID, NETWORKID);
+  Serial.print("NODE ID changed to ");
+  Serial.println(TRANSMITNODEID,DEC);
+  firstLoop = false;
+  }
+  transmit();
 }
 
-//Function handling recieving data and translating it into output pins
-void recieve()
+//Function handling input pin checking to see if a message needs to be sent
+void transmit()
 {
-  // RECEIVING
+   // Set up a "buffer" for characters that we'll send; message format is [4 char DevID, 10 char message, end with Zero termination character]
+  
+  static char sendbuffer[MESSAGELENGTH];
 
-  // In this section, we'll check with the RFM69HCW to see
-  // if it has received any packets:
+  // SENDING
 
-  if (radio.receiveDone()) // Got one!
-  {
-    // Send an ACK if requested.
-    // (You don't need this code if you're not using ACKs.)
+  // Read inputs, then check against previous state
+  
+  clrSideState = digitalRead(CLRSIDEIN);
+  leftLightState = digitalRead(LEFTLIGHTIN);
+  rightLightState = digitalRead(RIGHTLIGHTIN);
+  stopLightState = digitalRead(STOPLIGHTIN);
+  tailRunState = digitalRead(TAILRUNIN);
+  
+  if(clrSideState != lastClrSideState){
     
-    if (radio.ACKRequested())
-    {
-      radio.sendACK();
-      Serial.println("ACK sent");
+    if(clrSideState == HIGH){
+      memcpy(&sendbuffer[0], &DevID[0], 4);
+      memcpy(&sendbuffer[4], "CLRSIDEON*", 10);
+      sendMessage(sendbuffer);
+    }
+    else{
+    memcpy(&sendbuffer[0], &DevID[0], 4);
+    memcpy(&sendbuffer[4], "CLRSIDEOFF", 10);
+    sendMessage(sendbuffer);
     }
     
-    char transmitterID[4]; // The ID of the transmitter that sent the message
-    char message[11] = {'\0'}; // The 10 character message we are interpreting, plus a terminating null
+  }
+  
+  if(leftLightState != lastLeftLightState){
     
-    //Extract the transmitterID and message from the recieved packet
-    memcpy(&message[0], &radio.DATA[4], 10);
-    memcpy(&transmitterID[0], &radio.DATA[0], 4);
+    if(leftLightState == HIGH){
+      memcpy(&sendbuffer[0], &DevID[0], 4);
+      memcpy(&sendbuffer[4], "LEFTON****", 10);
+      sendMessage(sendbuffer);
+    }
+    else{
+    memcpy(&sendbuffer[0], &DevID[0], 4);
+    memcpy(&sendbuffer[4], "LEFTOFF***", 10);
+    sendMessage(sendbuffer);
+    }
     
-    
-    // Print out the information:
-    
-    Serial.print("received from node ");
-    Serial.print(radio.SENDERID, DEC);
-    Serial.print(": [");
+  }
 
-    // The actual message is contained in the DATA array,
-    // and is DATALEN bytes in size:
+  if(rightLightState != lastRightLightState){
     
-    for (byte i = 0; i < radio.DATALEN; i++)
-      Serial.print((char)radio.DATA[i]);
+    if(rightLightState == HIGH){
+      memcpy(&sendbuffer[0], &DevID[0], 4);
+      memcpy(&sendbuffer[4], "RIGHTON***", 10);
+      sendMessage(sendbuffer);
+    }
+    else{
+    memcpy(&sendbuffer[0], &DevID[0], 4);
+    memcpy(&sendbuffer[4], "RIGHTOFF**", 10);
+    sendMessage(sendbuffer);
+    }
+    
+  }
 
-    // RSSI is the "Receive Signal Strength Indicator",
-    // smaller numbers mean higher power.
+  if(stopLightState != lastStopLightState){
     
-    Serial.print("], RSSI ");
-    Serial.println(radio.RSSI);
+    if(stopLightState == HIGH){
+      memcpy(&sendbuffer[0], &DevID[0], 4);
+      memcpy(&sendbuffer[4], "STOPON****", 10);
+      sendMessage(sendbuffer);
+    }
+    else{
+    memcpy(&sendbuffer[0], &DevID[0], 4);
+    memcpy(&sendbuffer[4], "STOPOFF***", 10);
+    sendMessage(sendbuffer);
+    }
     
-    Serial.print("Transmitter ID: ");
-    Serial.print(transmitterID);
-    Serial.println(";");
-    
-    Serial.print("Message content: ");
-    Serial.print(message);
-    Serial.println(";");
+  }
 
+  if(tailRunState != lastTailRunState){
     
-    //Output logic inverted to feed into relay
-    if(strcmp(message,"LEFTON****") == 0)
-      digitalWrite(LEFTLIGHTOUT, HIGH);
-    else if(strcmp(message,"LEFTOFF***") == 0)
-      digitalWrite(LEFTLIGHTOUT, LOW);
-    else if(strcmp(message,"RIGHTON***") == 0)
-      digitalWrite(RIGHTLIGHTOUT, HIGH);
-    else if(strcmp(message,"RIGHTOFF**") == 0)
-      digitalWrite(RIGHTLIGHTOUT, LOW);
-    else if(strcmp(message,"TAILRUNON*") == 0)
-      digitalWrite(TAILRUNOUT, HIGH);
-    else if(strcmp(message,"TAILRUNOFF") == 0)
-      digitalWrite(TAILRUNOUT, LOW);
-    else if(strcmp(message,"STOPON****") == 0)
-      digitalWrite(STOPLIGHTOUT, HIGH);
-    else if(strcmp(message,"STOPOFF***") == 0)
-      digitalWrite(STOPLIGHTOUT, LOW);
-    else if(strcmp(message,"CLRSIDEON*") == 0)
-      digitalWrite(CLRSIDEOUT, HIGH);
-    else if(strcmp(message,"CLRSIDEOFF") == 0)
-      digitalWrite(CLRSIDEOUT, LOW);
+    if(tailRunState == HIGH){
+      memcpy(&sendbuffer[0], &DevID[0], 4);
+      memcpy(&sendbuffer[4], "TAILRUNON*", 10);
+      sendMessage(sendbuffer);
+    }
+    else{
+    memcpy(&sendbuffer[0], &DevID[0], 4);
+    memcpy(&sendbuffer[4], "TAILRUNOFF", 10);
+    sendMessage(sendbuffer);
+    }
+    
+  }
+  
+  // Set previous state for each input
+  lastClrSideState = clrSideState;
+  lastLeftLightState = leftLightState;
+  lastRightLightState = rightLightState;
+  lastStopLightState = stopLightState;
+  lastTailRunState = tailRunState;
+}
 
+//Function to transmit the message to a reciever
+void sendMessage(char* message)
+{
+  Serial.print("sending to node ");
+  Serial.print(RECIEVENODEID, DEC);
+  Serial.print(": [");
+  Serial.print(message);
+  Serial.println("]");
+  
+  // There are two ways to send packets. If you want
+  // acknowledgements, use sendWithRetry():
+  
+  if (USEACK)
+  {
+    startTime = millis();
+    while (!(radio.sendWithRetry(RECIEVENODEID, message, MESSAGELENGTH))){
+      Serial.println("Waiting for ACK");
+      if(millis() - startTime > 3000){
+        //TODO: Implement warning function if no ACK is recieved in a certain time 
+        digitalWrite(STATUSLED,HIGH);
+      }
+    }
+    digitalWrite(STATUSLED,LOW);
+    Serial.println("ACK received!");
+    Serial.print("time spent waiting: ");
+    Serial.print(millis()-startTime);
+    Serial.println("ms");
+  }
+
+  // If you don't need acknowledgements, just use send():
+  
+  else // don't use ACK
+  {
+    radio.send(RECIEVENODEID, message, MESSAGELENGTH);
   }
 }
